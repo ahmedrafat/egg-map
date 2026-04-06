@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #080808;
+  color: #fafafa;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Override Leaflet popup */
+.leaflet-popup-content-wrapper {
+  background: #111;
+  border: 1px solid #2A2A2A;
+  border-radius: 8px;
+  color: #fafafa;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+}
+.leaflet-popup-tip {
+  background: #111;
+}
+.leaflet-popup-content {
+  margin: 12px 14px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.leaflet-container {
+  background: #080808;
+}
+.leaflet-control-zoom {
+  border: 1px solid #2A2A2A !important;
+  background: #111 !important;
+}
+.leaflet-control-zoom a {
+  background: #111 !important;
+  color: #888 !important;
+  border-color: #2A2A2A !important;
+}
+.leaflet-control-zoom a:hover {
+  background: #1A1A1A !important;
+  color: #FF6321 !important;
+}
+.leaflet-control-attribution {
+  background: rgba(8,8,8,0.8) !important;
+  color: #333 !important;
+  font-size: 9px !important;
+}
+.leaflet-control-attribution a {
+  color: #444 !important;
+}
+
+/* Pulse animation for active vessels */
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.6; }
+}
+.vessel-pulse { animation: pulse-dot 2s infinite; }
+
+/* Route line animation */
+@keyframes dash-flow {
+  to { stroke-dashoffset: -20; }
+}
