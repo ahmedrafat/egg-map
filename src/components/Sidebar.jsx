@@ -1,230 +1,211 @@
 import { useState } from 'react'
-import { Ship, Anchor, Package, Users, TrendingUp, RefreshCw, Globe, Filter, Search, X, Layers } from 'lucide-react'
+import {
+  Anchor, Ship, Home, Globe, Users, Truck, Navigation, DollarSign,
+  Layers, RefreshCw, Search, ChevronLeft, ChevronRight, LogOut,
+} from 'lucide-react'
 import clsx from 'clsx'
 
-const STATUS_COLOR = {
-  active:       '#22c55e',
-  'in-transit': '#3b82f6',
-  idle:         '#f59e0b',
-  maintenance:  '#ef4444',
-  operational:  '#22c55e',
-  congested:    '#ef4444',
-  high:         '#ef4444',
-}
+const LAYER_DEFS = [
+  { key: 'ports',      label: 'Ports',            color: '#22c55e', icon: Anchor },
+  { key: 'fleet',      label: 'Fleet',            color: '#3b82f6', icon: Ship },
+  { key: 'properties', label: 'Properties',       color: '#eab308', icon: Home },
+  { key: 'demand',     label: 'Market Demand',    color: '#FF6321', icon: Globe },
+  { key: 'providers',  label: 'Logistics Partners', color: '#a855f7', icon: Truck },
+  { key: 'routes',     label: 'Shipment Routes',  color: '#FF6321', icon: Navigation },
+  { key: 'freight',    label: 'Freight Rate Ports', color: '#06b6d4', icon: DollarSign },
+]
 
-const COMMODITY_CATEGORIES = ['All', 'Minerals', 'Agricultural', 'Chemicals', 'Maritime', 'Energy']
-
-const CATEGORY_COLORS = {
-  All:          '#FF6321',
-  Minerals:     '#f59e0b',
-  Agricultural: '#22c55e',
-  Chemicals:    '#8b5cf6',
-  Maritime:     '#3b82f6',
-  Energy:       '#ef4444',
-}
-
-function StatTile({ icon: Icon, label, value, sub, color }) {
-  return (
-    <div className="bg-[#111] border border-[#1E1E1E] rounded-lg p-2.5 flex items-center gap-2.5">
-      <div className="w-7 h-7 rounded flex items-center justify-center flex-shrink-0" style={{ background: `${color}18` }}>
-        <Icon size={12} style={{ color }} />
-      </div>
-      <div className="min-w-0">
-        <div className="text-[8px] uppercase tracking-widest text-[#444] font-bold">{label}</div>
-        <div className="text-sm font-black text-[#FAFAFA] leading-tight">{value ?? '—'}</div>
-        {sub && <div className="text-[8px] text-[#555] mt-0.5">{sub}</div>}
-      </div>
-    </div>
-  )
-}
+const Chip = ({ label, value, tint = '#FF6321' }) => (
+  <div className="flex-1 min-w-[90px] rounded-lg border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-2">
+    <div className="text-[9px] uppercase tracking-widest text-neutral-500">{label}</div>
+    <div className="text-sm font-bold mt-0.5" style={{ color: tint }}>{value}</div>
+  </div>
+)
 
 export default function Sidebar({
-  stats, layers, onToggleLayer, onRefresh, loading, selectedItem, onClearSelection,
+  stats, layers, onToggleLayer,
   searchQuery, onSearchChange, searchResults, onSearchSelect,
-  activeCategory, onCategoryChange, countdown,
+  loading, onRefresh,
+  user, onSignOut,
+  collapsed, onToggleCollapsed,
 }) {
-  const [searchFocused, setSearchFocused] = useState(false)
+  const [tab, setTab] = useState('overview') // 'overview' | 'layers'
 
-  const fmtValue = (v) => {
-    if (!v) return '$0'
-    const m = v / 1_000_000
-    return m >= 1 ? `$${m.toFixed(1)}M` : `$${(v / 1000).toFixed(0)}K`
+  if (collapsed) {
+    return (
+      <button
+        onClick={onToggleCollapsed}
+        className="absolute top-3 left-3 z-[1000] w-9 h-9 bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg text-neutral-400 hover:text-white hover:border-[#FF6321]/40 flex items-center justify-center transition-colors"
+        title="Show sidebar"
+      >
+        <ChevronRight size={16} />
+      </button>
+    )
   }
 
   return (
-    <div className="absolute top-0 left-0 h-full w-64 z-[1000] flex flex-col pointer-events-none">
-
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="pointer-events-auto bg-[#080808]/95 border-r border-b border-[#1E1E1E] px-4 py-3 backdrop-blur-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded flex items-center justify-center bg-[#FF6321]">
-            <Globe size={12} className="text-black" />
-          </div>
-          <div>
-            <div className="text-[10px] font-black uppercase tracking-widest text-[#FF6321]">EGG MAP</div>
-            <div className="text-[8px] text-[#444] uppercase tracking-wider">Trade Intelligence</div>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            {!loading && (
-              <span className="text-[8px] font-mono text-[#333]">{countdown}s</span>
-            )}
-            <button onClick={onRefresh} disabled={loading}
-              className="text-[#444] hover:text-[#FF6321] transition-colors disabled:opacity-40">
-              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-            </button>
-          </div>
+    <div className="absolute top-3 left-3 z-[1000] w-72 bg-[#0a0a0a]/95 border border-[#1a1a1a] rounded-xl backdrop-blur-md shadow-2xl flex flex-col max-h-[calc(100vh-24px)]">
+      {/* Header */}
+      <div className="px-4 pt-3 pb-2 border-b border-[#1a1a1a] flex items-center gap-2">
+        <div className="w-7 h-7 rounded-lg bg-[#FF6321]/20 border border-[#FF6321]/40 flex items-center justify-center">
+          <Globe size={14} className="text-[#FF6321]" />
         </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] font-bold text-white tracking-tight">EGG Globe Map</div>
+          <div className="text-[9px] text-neutral-500 uppercase tracking-widest">Ecosystem Intel</div>
+        </div>
+        <button
+          onClick={onToggleCollapsed}
+          className="w-6 h-6 rounded-md text-neutral-500 hover:text-white hover:bg-[#141414] flex items-center justify-center transition-colors"
+          title="Hide sidebar"
+        >
+          <ChevronLeft size={14} />
+        </button>
       </div>
 
-      {/* ── Search ──────────────────────────────────────────────────────── */}
-      <div className="pointer-events-auto bg-[#080808]/95 border-r border-b border-[#1E1E1E] px-3 py-2 backdrop-blur-sm relative">
-        <div className={clsx(
-          'flex items-center gap-2 bg-[#111] border rounded px-2.5 py-1.5 transition-colors',
-          searchFocused ? 'border-[#FF6321]/50' : 'border-[#1E1E1E]'
-        )}>
-          <Search size={10} className="text-[#444] flex-shrink-0" />
+      {/* Tabs */}
+      <div className="flex border-b border-[#1a1a1a]">
+        {['overview', 'layers'].map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={clsx(
+              'flex-1 py-2 text-[10px] uppercase tracking-widest font-bold transition-colors',
+              tab === t ? 'text-[#FF6321] border-b-2 border-[#FF6321]' : 'text-neutral-500 hover:text-neutral-300'
+            )}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {/* Scrollable body */}
+      <div className="overflow-y-auto px-3 py-3 space-y-3 flex-1">
+        {/* Search */}
+        <div className="relative">
+          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-600" />
           <input
             value={searchQuery}
-            onChange={e => onSearchChange(e.target.value)}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
-            placeholder="Search fleet, ports, countries…"
-            className="bg-transparent text-[10px] text-[#FAFAFA] placeholder-[#333] outline-none w-full"
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Search ports / fleet / countries…"
+            className="w-full bg-[#111] border border-[#1a1a1a] rounded-md pl-7 pr-2 py-1.5 text-[11px] text-white placeholder-neutral-600 focus:outline-none focus:border-[#FF6321]/40"
           />
-          {searchQuery && (
-            <button onClick={() => onSearchChange('')} className="text-[#444] hover:text-[#FAFAFA]">
-              <X size={9} />
-            </button>
+          {searchQuery && searchResults.length > 0 && (
+            <div className="absolute top-full mt-1 left-0 right-0 bg-[#0a0a0a] border border-[#1a1a1a] rounded-md shadow-xl z-10 max-h-60 overflow-y-auto">
+              {searchResults.map((r, i) => (
+                <button
+                  key={i}
+                  onClick={() => onSearchSelect(r)}
+                  className="w-full text-left px-2.5 py-1.5 text-[10px] text-neutral-300 hover:bg-[#FF6321]/10 hover:text-white border-b border-[#141414] last:border-0"
+                >
+                  <div className="font-semibold">{r.label}</div>
+                  <div className="text-neutral-600 text-[9px]">{r.sub}</div>
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
-        {/* Search results dropdown */}
-        {searchFocused && searchResults.length > 0 && (
-          <div className="absolute left-3 right-3 top-full mt-1 bg-[#111] border border-[#2A2A2A] rounded shadow-2xl z-10 overflow-hidden">
-            {searchResults.map((r, i) => (
-              <button
-                key={i}
-                onMouseDown={() => onSearchSelect(r)}
-                className="w-full text-left px-3 py-2 hover:bg-[#1A1A1A] flex items-center gap-2 border-b border-[#1A1A1A] last:border-0"
-              >
-                <div className="min-w-0">
-                  <div className="text-[10px] font-bold text-[#FAFAFA] truncate">{r.label}</div>
-                  <div className="text-[8px] text-[#555] truncate">{r.sub}</div>
-                </div>
-              </button>
-            ))}
+        {tab === 'overview' && (
+          <>
+            <div>
+              <div className="text-[9px] uppercase tracking-widest text-neutral-500 mb-1.5">Market Signals</div>
+              <div className="flex gap-1.5 flex-wrap">
+                <Chip label="RFQs"      value={stats.rfqs}    tint="#FF6321" />
+                <Chip label="Leads"     value={stats.leads}   tint="#FF6321" />
+                <Chip label="Buyers"    value={stats.buyers}  tint="#FF6321" />
+                <Chip label="Customers" value={stats.customers} tint="#FF6321" />
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[9px] uppercase tracking-widest text-neutral-500 mb-1.5">Infrastructure</div>
+              <div className="flex gap-1.5 flex-wrap">
+                <Chip label="Ports"      value={stats.ports}      tint="#22c55e" />
+                <Chip label="Fleet"      value={stats.fleet}      tint="#3b82f6" />
+                <Chip label="Properties" value={stats.properties} tint="#eab308" />
+                <Chip label="Partners"   value={stats.providers}  tint="#a855f7" />
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[9px] uppercase tracking-widest text-neutral-500 mb-1.5">Flow</div>
+              <div className="flex gap-1.5 flex-wrap">
+                <Chip label="Shipments" value={stats.shipments} tint="#06b6d4" />
+                <Chip label="Orders"    value={stats.orders}    tint="#06b6d4" />
+                <Chip label="Countries" value={stats.countries} tint="#06b6d4" />
+                <Chip label="Products"  value={stats.products}  tint="#06b6d4" />
+              </div>
+            </div>
+          </>
+        )}
+
+        {tab === 'layers' && (
+          <div className="space-y-1">
+            <div className="text-[9px] uppercase tracking-widest text-neutral-500 mb-1 flex items-center gap-1">
+              <Layers size={10} />
+              Toggle layers
+            </div>
+            {LAYER_DEFS.map((def) => {
+              const Icon = def.icon
+              const on = !!layers[def.key]
+              return (
+                <button
+                  key={def.key}
+                  onClick={() => onToggleLayer(def.key)}
+                  className={clsx(
+                    'w-full flex items-center gap-2 px-2.5 py-2 rounded-md border transition-all text-left',
+                    on
+                      ? 'bg-[#141414] border-[#2a2a2a] text-white'
+                      : 'bg-transparent border-[#141414] text-neutral-600 hover:text-neutral-400'
+                  )}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ background: on ? def.color : '#222', boxShadow: on ? `0 0 6px ${def.color}` : 'none' }}
+                  />
+                  <Icon size={12} className="flex-shrink-0 opacity-70" />
+                  <span className="text-[11px] font-medium flex-1">{def.label}</span>
+                  <span className={clsx(
+                    'text-[9px] uppercase tracking-wider font-bold',
+                    on ? 'text-[#FF6321]' : 'text-neutral-700'
+                  )}>
+                    {on ? 'on' : 'off'}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         )}
       </div>
 
-      {/* ── Stats ───────────────────────────────────────────────────────── */}
-      <div className="pointer-events-auto bg-[#080808]/95 border-r border-[#1E1E1E] px-3 py-2.5 space-y-1.5 backdrop-blur-sm">
-        <div className="text-[9px] uppercase tracking-widest text-[#333] font-bold mb-1.5 flex items-center gap-1.5">
-          <TrendingUp size={9} /> Live Stats
-        </div>
-        <StatTile
-          icon={Ship}
-          label="Fleet"
-          value={`${stats.fleet} vehicles`}
-          sub={`${stats.vessels} vessels · ${stats.trucks} trucks`}
-          color="#3b82f6"
-        />
-        <StatTile
-          icon={Anchor}
-          label="Ports"
-          value={`${stats.ports} ports`}
-          sub={stats.congested > 0 ? `${stats.congested} congested` : 'All clear'}
-          color="#22c55e"
-        />
-        <StatTile
-          icon={Package}
-          label="Routes"
-          value={`${stats.routeCount} routes`}
-          sub={fmtValue(stats.totalValue) + ' total'}
-          color="#FF6321"
-        />
-        <StatTile
-          icon={Users}
-          label="Customers"
-          value={`${stats.customers} buyers`}
-          sub={`${stats.countryCount} countries`}
-          color="#8b5cf6"
-        />
-      </div>
+      {/* Footer */}
+      <div className="px-3 py-2 border-t border-[#1a1a1a] flex items-center gap-2">
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className={clsx(
+            'flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium border transition-colors',
+            loading
+              ? 'bg-[#141414] border-[#1a1a1a] text-neutral-600 cursor-not-allowed'
+              : 'bg-[#141414] border-[#1a1a1a] text-neutral-400 hover:text-white hover:border-[#FF6321]/40'
+          )}
+        >
+          <RefreshCw size={10} className={clsx(loading && 'animate-spin')} />
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
 
-      {/* ── Commodity Filter Chips ──────────────────────────────────────── */}
-      <div className="pointer-events-auto bg-[#080808]/95 border-r border-[#1E1E1E] px-3 py-2.5 backdrop-blur-sm">
-        <div className="text-[9px] uppercase tracking-widest text-[#333] font-bold mb-2 flex items-center gap-1.5">
-          <Layers size={9} /> Commodity Filter
+        <div className="flex-1 min-w-0 text-right">
+          <div className="text-[9px] text-neutral-600 truncate">{user?.email}</div>
         </div>
-        <div className="flex flex-wrap gap-1">
-          {COMMODITY_CATEGORIES.map(cat => {
-            const active = activeCategory === cat
-            const color  = CATEGORY_COLORS[cat] || '#FF6321'
-            return (
-              <button
-                key={cat}
-                onClick={() => onCategoryChange(cat)}
-                className={clsx(
-                  'px-2 py-0.5 rounded text-[9px] font-bold border transition-all',
-                  active
-                    ? 'text-black border-transparent'
-                    : 'bg-transparent text-[#555] border-[#1E1E1E] hover:text-[#888] hover:border-[#2A2A2A]'
-                )}
-                style={active ? { background: color, borderColor: color } : {}}
-              >
-                {cat}
-              </button>
-            )
-          })}
-        </div>
-      </div>
 
-      {/* ── Layer Toggles ───────────────────────────────────────────────── */}
-      <div className="pointer-events-auto bg-[#080808]/95 border-r border-[#1E1E1E] px-3 py-2.5 backdrop-blur-sm">
-        <div className="text-[9px] uppercase tracking-widest text-[#333] font-bold mb-2 flex items-center gap-1.5">
-          <Filter size={9} /> Layers
-        </div>
-        <div className="space-y-1">
-          {[
-            { key: 'fleet',     label: 'Fleet & Vehicles',    color: '#3b82f6' },
-            { key: 'ports',     label: 'Ports',               color: '#22c55e' },
-            { key: 'routes',    label: 'Trade Routes',        color: '#FF6321' },
-            { key: 'customers', label: 'Customer Markets',    color: '#8b5cf6' },
-            { key: 'heatmap',   label: 'Throughput Heatmap',  color: '#f59e0b' },
-          ].map(({ key, label, color }) => (
-            <button key={key} onClick={() => onToggleLayer(key)}
-              className={clsx(
-                'w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[10px] font-bold transition-all border',
-                layers[key]
-                  ? 'bg-[#1A1A1A] border-[#2A2A2A] text-[#FAFAFA]'
-                  : 'bg-transparent border-transparent text-[#444]'
-              )}>
-              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: layers[key] ? color : '#2A2A2A' }} />
-              {label}
-              <span className="ml-auto text-[8px]">{layers[key] ? 'ON' : 'OFF'}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Fleet Status Legend ─────────────────────────────────────────── */}
-      <div className="pointer-events-auto bg-[#080808]/95 border-r border-t border-[#1E1E1E] px-3 py-2.5 backdrop-blur-sm mt-auto">
-        <div className="text-[8px] uppercase tracking-widest text-[#2A2A2A] font-bold mb-1.5">Fleet Status</div>
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-          {[
-            ['Active',      '#22c55e'],
-            ['In-Transit',  '#3b82f6'],
-            ['Idle',        '#f59e0b'],
-            ['Maintenance', '#ef4444'],
-            ['In Port',     '#8b5cf6'],
-          ].map(([label, color]) => (
-            <div key={label} className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />
-              <span className="text-[8px] text-[#444]">{label}</span>
-            </div>
-          ))}
-        </div>
+        <button
+          onClick={onSignOut}
+          className="w-6 h-6 rounded-md text-neutral-500 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-colors"
+          title="Sign out"
+        >
+          <LogOut size={12} />
+        </button>
       </div>
     </div>
   )

@@ -1,182 +1,117 @@
-import { X, Anchor, Ship, Package, TrendingUp, Activity } from 'lucide-react'
+import { X, Anchor, Ship, Home, Globe, Truck } from 'lucide-react'
 
-const CONGESTION_COLOR = {
-  low:         '#22c55e',
-  moderate:    '#f59e0b',
-  high:        '#ef4444',
-  congested:   '#ef4444',
-  operational: '#22c55e',
+const ICON_FOR = {
+  Port: Anchor,
+  Fleet: Ship,
+  Property: Home,
+  Demand: Globe,
+  Providers: Truck,
 }
 
-const STATUS_COLOR = {
-  active:       '#22c55e',
-  'in-transit': '#3b82f6',
-  idle:         '#f59e0b',
-  maintenance:  '#ef4444',
-  'in-port':    '#8b5cf6',
-  delivered:    '#6b7280',
-}
-
-function Row({ label, value, color }) {
+function Row({ label, value }) {
+  if (value == null || value === '') return null
   return (
-    <div className="flex items-center justify-between py-1 border-b border-[#1A1A1A] last:border-0">
-      <span className="text-[9px] text-[#555] uppercase tracking-wider">{label}</span>
-      <span className="text-[10px] font-bold" style={{ color: color || '#FAFAFA' }}>{value ?? '—'}</span>
+    <div className="flex items-start gap-3 py-1.5 border-b border-[#141414] last:border-0">
+      <div className="text-[10px] uppercase tracking-widest text-neutral-500 w-24 flex-shrink-0">{label}</div>
+      <div className="text-xs text-white flex-1 break-words">{String(value)}</div>
     </div>
   )
 }
 
-function OrderChip({ order }) {
-  const fmtVal = v => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1000 ? `$${(v / 1000).toFixed(0)}K` : `$${v}`
-  return (
-    <div className="bg-[#111] border border-[#1E1E1E] rounded px-2 py-1.5 mb-1 last:mb-0">
-      <div className="flex items-center justify-between mb-0.5">
-        <span className="text-[9px] font-bold text-[#888]">{order.order_no || order.id}</span>
-        {order.value && <span className="text-[9px] text-[#FF6321] font-black">{fmtVal(Number(order.value))}</span>}
-      </div>
-      {order.commodity && <div className="text-[8px] text-[#555]">{order.commodity}</div>}
-      {order.status    && <div className="text-[8px] text-[#444] capitalize mt-0.5">{order.status}</div>}
-    </div>
-  )
-}
-
-export default function RightPanel({ item, portOrders, onClose }) {
+export default function RightPanel({ item, onClose }) {
   if (!item) return null
-
-  const isPort   = item.type === 'Port'
-  const isFleet  = item.type === 'vessel' || item.type === 'ship' || item.type === 'truck' || item.type === 'Vehicle'
-  const isMarket = item.type === 'Market'
-
-  const congColor = CONGESTION_COLOR[item.congestion_level] || '#22c55e'
-  const statColor = STATUS_COLOR[item.status?.toLowerCase()] || '#6b7280'
+  const Icon = ICON_FOR[item.type] || Globe
 
   return (
-    <div
-      className="right-panel-enter absolute top-0 right-0 h-full w-72 z-[1001] flex flex-col pointer-events-auto"
-      style={{ background: 'rgba(8,8,8,0.97)', borderLeft: '1px solid #1E1E1E' }}
-    >
+    <div className="absolute top-3 right-3 bottom-3 z-[1000] w-80 bg-[#0a0a0a]/95 border border-[#1a1a1a] rounded-xl backdrop-blur-md shadow-2xl flex flex-col right-panel-enter">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1E1E1E]">
-        <div
-          className="w-7 h-7 rounded flex items-center justify-center flex-shrink-0"
-          style={{ background: isPort ? '#22c55e18' : isMarket ? '#8b5cf618' : '#3b82f618' }}
-        >
-          {isPort   && <Anchor size={12} className="text-[#22c55e]" />}
-          {isFleet  && <Ship   size={12} className="text-[#3b82f6]" />}
-          {isMarket && <TrendingUp size={12} className="text-[#8b5cf6]" />}
-          {!isPort && !isFleet && !isMarket && <Package size={12} className="text-[#FF6321]" />}
+      <div className="px-4 py-3 border-b border-[#1a1a1a] flex items-center gap-2">
+        <div className="w-8 h-8 rounded-lg bg-[#FF6321]/20 border border-[#FF6321]/30 flex items-center justify-center flex-shrink-0">
+          <Icon size={14} className="text-[#FF6321]" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] font-black text-[#FAFAFA] truncate">{item.name}</div>
-          <div className="text-[8px] text-[#444] uppercase tracking-wider">{item.type}</div>
+          <div className="text-[9px] uppercase tracking-widest text-neutral-500">{item.type}</div>
+          <div className="text-xs font-bold text-white truncate">
+            {item.name || item.address || item.code || '—'}
+          </div>
         </div>
-        <button onClick={onClose} className="text-[#444] hover:text-[#FAFAFA] transition-colors">
+        <button
+          onClick={onClose}
+          className="w-6 h-6 rounded-md text-neutral-500 hover:text-white hover:bg-[#141414] flex items-center justify-center transition-colors"
+        >
           <X size={14} />
         </button>
       </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-
-        {/* ── Port details ──────────────────────────────────────────────── */}
-        {isPort && (
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {item.type === 'Port' && (
           <>
-            <section>
-              <div className="text-[8px] uppercase tracking-widest text-[#333] font-bold mb-2 flex items-center gap-1.5">
-                <Anchor size={8} /> Port Info
-              </div>
-              <div className="bg-[#0D0D0D] border border-[#1A1A1A] rounded-lg px-3 py-2">
-                <Row label="Code"    value={item.code} />
-                <Row label="Country" value={item.country} />
-                {item.vessels_in_port != null && (
-                  <Row label="Vessels in port" value={item.vessels_in_port} color="#22c55e" />
-                )}
-                {item.berths_total != null && (
-                  <Row
-                    label="Berths"
-                    value={`${item.berths_occupied ?? '?'} / ${item.berths_total}`}
-                    color={item.berths_occupied >= item.berths_total ? '#ef4444' : '#f59e0b'}
-                  />
-                )}
-                {item.daily_throughput != null && (
-                  <Row label="Daily throughput" value={`${item.daily_throughput?.toLocaleString()} t/day`} color="#3b82f6" />
-                )}
-                <Row
-                  label="Congestion"
-                  value={(item.congestion_level || item.status || '—')}
-                  color={congColor}
-                />
-              </div>
-            </section>
-
-            {/* Congestion indicator bar */}
-            <section>
-              <div className="text-[8px] uppercase tracking-widest text-[#333] font-bold mb-2 flex items-center gap-1.5">
-                <Activity size={8} /> Congestion Level
-              </div>
-              <div className="h-1.5 bg-[#1A1A1A] rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    background: congColor,
-                    width: item.congestion_level === 'high' || item.congestion_level === 'congested'
-                      ? '90%'
-                      : item.congestion_level === 'moderate'
-                      ? '55%'
-                      : '20%',
-                  }}
-                />
-              </div>
-              <div className="mt-1 text-[8px] capitalize" style={{ color: congColor }}>
-                {item.congestion_level || item.status || 'Unknown'}
-              </div>
-            </section>
-
-            {/* Active orders */}
-            {portOrders.length > 0 && (
-              <section>
-                <div className="text-[8px] uppercase tracking-widest text-[#333] font-bold mb-2 flex items-center gap-1.5">
-                  <Package size={8} /> Active Orders ({portOrders.length})
-                </div>
-                <div className="max-h-48 overflow-y-auto">
-                  {portOrders.map(o => <OrderChip key={o.id} order={o} />)}
-                </div>
-              </section>
-            )}
+            <Row label="Country"   value={item.country} />
+            <Row label="Status"    value={item.status} />
+            <Row label="Vessels"   value={item.vessels_in_port} />
+            <Row label="Lat"       value={item.lat} />
+            <Row label="Lng"       value={item.lng} />
           </>
         )}
-
-        {/* ── Fleet details ─────────────────────────────────────────────── */}
-        {isFleet && (
-          <section>
-            <div className="text-[8px] uppercase tracking-widest text-[#333] font-bold mb-2 flex items-center gap-1.5">
-              <Ship size={8} /> Vessel Info
-            </div>
-            <div className="bg-[#0D0D0D] border border-[#1A1A1A] rounded-lg px-3 py-2">
-              <Row label="Type"     value={item.type}    />
-              <Row label="Status"   value={item.status}  color={statColor} />
-              {item.flag         && <Row label="Flag"     value={item.flag} />}
-              {item.cargo        && <Row label="Cargo"    value={item.cargo}     color="#FF6321" />}
-              {item.speed != null && <Row label="Speed"   value={`${item.speed} km/h`} />}
-              {item.capacity     && <Row label="Capacity" value={item.capacity}  />}
-              {item.current_port && <Row label="Port"     value={item.current_port} color="#22c55e" />}
-            </div>
-          </section>
+        {item.type === 'Fleet' && (
+          <>
+            <Row label="Status"       value={item.status} />
+            <Row label="Capacity"     value={item.capacity && `${item.capacity} ${item.capacity_unit || ''}`} />
+            <Row label="Current port" value={item.current_port} />
+            <Row label="Destination"  value={item.destination} />
+          </>
         )}
-
-        {/* ── Market details ────────────────────────────────────────────── */}
-        {isMarket && (
-          <section>
-            <div className="text-[8px] uppercase tracking-widest text-[#333] font-bold mb-2 flex items-center gap-1.5">
-              <TrendingUp size={8} /> Market Info
-            </div>
-            <div className="bg-[#0D0D0D] border border-[#1A1A1A] rounded-lg px-3 py-2">
-              <Row label="Country"   value={item.country} />
-              <Row label="Customers" value={item.orderCount} color="#8b5cf6" />
-            </div>
-          </section>
+        {item.type === 'Property' && (
+          <>
+            <Row label="Address" value={item.address} />
+            <Row label="Status"  value={item.status} />
+          </>
         )}
-
+        {item.type === 'Demand' && (
+          <>
+            <Row label="Country"  value={item.code} />
+            <Row label="Total"    value={item.total} />
+            <Row label="RFQs"     value={item.rfqs} />
+            <Row label="Leads"    value={item.leads} />
+            <Row label="Buyers"   value={item.buyers} />
+            <div className="mt-4 pt-3 border-t border-[#141414]">
+              <div className="text-[9px] uppercase tracking-widest text-neutral-500 mb-2">Market breakdown</div>
+              {[
+                { k: 'RFQs (marketplace)', v: item.rfqs, c: '#FF6321' },
+                { k: 'CRM Leads',           v: item.leads, c: '#eab308' },
+                { k: 'Salt Buyers',         v: item.buyers, c: '#a855f7' },
+              ].map(({ k, v, c }) => (
+                <div key={k} className="mb-1.5">
+                  <div className="flex justify-between text-[10px] mb-0.5">
+                    <span className="text-neutral-400">{k}</span>
+                    <span className="text-neutral-500 font-mono">{v}</span>
+                  </div>
+                  <div className="h-1 rounded-full bg-[#141414] overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${Math.min(100, (v / (item.total || 1)) * 100)}%`, background: c }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {item.type === 'Providers' && (
+          <>
+            <Row label="Country" value={item.code} />
+            <Row label="Count"   value={item.count} />
+            <div className="mt-3">
+              <div className="text-[9px] uppercase tracking-widest text-neutral-500 mb-1.5">Partners</div>
+              <div className="space-y-1">
+                {item.names?.map((n, i) => (
+                  <div key={i} className="text-[11px] text-neutral-300 bg-[#111] px-2 py-1 rounded-md">{n}</div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

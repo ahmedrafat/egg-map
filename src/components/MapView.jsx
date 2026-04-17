@@ -1,256 +1,315 @@
-import { useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, useMap } from 'react-leaflet'
+import { useEffect, useImperativeHandle, forwardRef, useMemo } from 'react'
+import { MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, Marker, useMap } from 'react-leaflet'
 import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import { resolveCountry } from '../lib/countryCoords.js'
+import { portCoordsIndex } from '../lib/portCoords.js'
 
-// Fix Leaflet default icon
-delete L.Icon.Default.prototype._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
+// Alexandria / Damietta anchor — most ecosystem flows originate from Egypt
+const ORIGIN = [31.1656, 29.8638]
 
-// ── Color maps ────────────────────────────────────────────────────────────
-const FLEET_COLORS = {
-  active:       '#22c55e',
-  'in-transit': '#3b82f6',
-  idle:         '#f59e0b',
-  maintenance:  '#ef4444',
-  'in-port':    '#8b5cf6',
-  delivered:    '#6b7280',
+const LAYER_COLORS = {
+  ports:      '#22c55e',  // green
+  fleet:      '#3b82f6',  // blue
+  properties: '#eab308',  // gold
+  demand:     '#FF6321',  // ecosystem orange
+  providers:  '#a855f7',  // purple
+  routes:     '#FF6321',
+  freight:    '#06b6d4',  // cyan
 }
 
-const PORT_CONGESTION_COLOR = {
-  low:      '#22c55e',
-  medium:   '#f59e0b',
-  high:     '#ef4444',
-  critical: '#dc2626',
+// A lightweight HTML divIcon — avoids default pin asset issues.
+function dotIcon(color, size = 10, ring = false) {
+  const innerSize = size
+  const outerSize = size + 8
+  return L.divIcon({
+    className: '',
+    iconSize: [outerSize, outerSize],
+    iconAnchor: [outerSize / 2, outerSize / 2],
+    html: `
+      <div style="position:relative;width:${outerSize}px;height:${outerSize}px;">
+        ${ring ? `<span class="fleet-pulse-ring" style="top:0;left:0;right:0;bottom:0;background:${color};opacity:0.4;"></span>` : ''}
+        <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:${innerSize}px;height:${innerSize}px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color},0 0 2px rgba(0,0,0,0.9);border:1px solid rgba(255,255,255,0.3);"></span>
+      </div>`,
+  })
 }
 
-export const COMMODITY_COLORS = {
-  Minerals:     '#f59e0b',
-  Agricultural: '#22c55e',
-  Chemicals:    '#8b5cf6',
-  Maritime:     '#3b82f6',
-  Energy:       '#ef4444',
-  default:      '#FF6321',
-}
-
-function getFleetColor(item) {
-  return FLEET_COLORS[item.status?.toLowerCase()] || '#6b7280'
-}
-
-function getPortColor(port) {
-  return PORT_CONGESTION_COLOR[port.congestion_level] || PORT_CONGESTION_COLOR[port.status] || '#22c55e'
-}
-
-function getRouteColor(route) {
-  return COMMODITY_COLORS[route.primaryCategory] || COMMODITY_COLORS.default
-}
-
-// Curved arc between two lat/lng points
-function makeArc(from, to, steps = 40) {
-  const points = []
-  for (let i = 0; i <= steps; i++) {
-    const t   = i / steps
-    const lat = from[0] + (to[0] - from[0]) * t
-    const lng = from[1] + (to[1] - from[1]) * t
-    const dist  = Math.sqrt(Math.pow(to[0] - from[0], 2) + Math.pow(to[1] - from[1], 2))
-    const bulge = Math.sin(Math.PI * t) * (dist * 0.15)
-    points.push([lat + bulge, lng])
-  }
-  return points
-}
-
-// Fits map to port bounds on first load
-function FitBounds({ ports }) {
-  const map   = useMap()
-  const fitted = useRef(false)
-  useEffect(() => {
-    if (ports.length > 0 && !fitted.current) {
-      fitted.current = true
-      const bounds = L.latLngBounds(ports.map(p => [p.lat, p.lng]))
-      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 5 })
-    }
-  }, [ports, map])
-  return null
-}
-
-// Exposes map controls (flyTo, zoomBy) to parent via ref
-function MapController({ mapRef }) {
+// Imperative handle: expose flyTo / zoomBy to the parent ref.
+function MapHandle({ onReady }) {
   const map = useMap()
-  useEffect(() => {
-    if (mapRef) {
-      mapRef.current = {
-        flyTo:  (coords, zoom) => map.flyTo(coords, zoom, { animate: true, duration: 1.2 }),
-        zoomBy: (delta)        => map.zoomIn ? (delta > 0 ? map.zoomIn() : map.zoomOut()) : null,
-      }
-    }
-  }, [map, mapRef])
+  useEffect(() => { onReady && onReady(map) }, [map, onReady])
   return null
 }
 
-// Port circle radius: heatmap=throughput-scaled, normal=8
-function portRadius(port, heatmap) {
-  if (!heatmap) return 8
-  const tp = port.daily_throughput || 0
-  return 5 + Math.min(tp / 500, 18)
-}
+const MapView = forwardRef(function MapView({
+  data,
+  layers,
+  onSelect,
+}, ref) {
+  const mapRefInternal = useMemo(() => ({ current: null }), [])
+  useImperativeHandle(ref, () => ({
+    flyTo: (coords, zoom = 5) => {
+      if (mapRefInternal.current) mapRefInternal.current.flyTo(coords, zoom, { duration: 1.2 })
+    },
+    zoomBy: (delta) => {
+      if (mapRefInternal.current) {
+        const cur = mapRefInternal.current.getZoom()
+        mapRefInternal.current.setZoom(cur + delta)
+      }
+    },
+  }), [mapRefInternal])
 
-export default function MapView({ mapRef, fleet, ports, routes, customers, layers, onSelect, activeCategory }) {
+  const portIndex = useMemo(() => portCoordsIndex(data.ports), [data.ports])
+
+  // Aggregate market demand (RFQs + leads + buyers) by country.
+  const demandByCountry = useMemo(() => {
+    const agg = {}
+    const push = (country, kind) => {
+      const r = resolveCountry(country)
+      if (!r) return
+      if (!agg[r.code]) agg[r.code] = { code: r.code, coords: r.coords, rfqs: 0, leads: 0, buyers: 0 }
+      agg[r.code][kind] += 1
+    }
+    ;(data.rfqs   || []).forEach((x) => push(x.buyer_country || x.country, 'rfqs'))
+    ;(data.leads  || []).forEach((x) => push(x.country, 'leads'))
+    ;(data.buyers || []).forEach((x) => push(x.country, 'buyers'))
+    return Object.values(agg).map((v) => ({ ...v, total: v.rfqs + v.leads + v.buyers }))
+  }, [data.rfqs, data.leads, data.buyers])
+
+  // Logistics provider markers by country.
+  const providerByCountry = useMemo(() => {
+    const agg = {}
+    ;(data.providers || []).forEach((p) => {
+      const r = resolveCountry(p.country)
+      if (!r) return
+      if (!agg[r.code]) agg[r.code] = { code: r.code, coords: r.coords, names: [], count: 0 }
+      agg[r.code].count += 1
+      if (p.name) agg[r.code].names.push(p.name)
+    })
+    return Object.values(agg)
+  }, [data.providers])
+
+  // Shipment routes (polylines)
+  const routes = useMemo(() => {
+    const out = []
+    const add = (from, to, meta) => {
+      if (!from || !to) return
+      out.push({ from, to, ...meta })
+    }
+    ;(data.customsShipments || []).forEach((s) => {
+      const origin = resolveCountry(s.origin_country)?.coords || ORIGIN
+      const dest   = portIndex.resolve(s.dest_port) || resolveCountry(s.dest_country)?.coords
+      if (dest) add(origin, dest, { label: s.commodity || 'Customs shipment', status: s.status, kind: 'customs' })
+    })
+    ;(data.pelotsaltOrders || []).forEach((o) => {
+      const origin = portIndex.resolve(o.port_of_loading) || ORIGIN
+      const dest   = portIndex.resolve(o.destination_port)
+      if (dest) add(origin, dest, { label: `Salt order → ${o.destination_port}`, status: o.status, buyer: o.buyer_name, kind: 'salt' })
+    })
+    ;(data.ordersGeneric || []).forEach((o) => {
+      const origin = portIndex.resolve(o.origin) || resolveCountry(o.origin)?.coords || ORIGIN
+      const dest   = portIndex.resolve(o.destination) || resolveCountry(o.destination)?.coords
+      if (dest) add(origin, dest, { label: o.commodity || 'Order', status: o.status, kind: 'generic' })
+    })
+    return out
+  }, [data.customsShipments, data.pelotsaltOrders, data.ordersGeneric, portIndex])
+
+  // Freight rate destination dots
+  const freightDots = useMemo(() => {
+    const out = []
+    ;(data.freightRates || []).forEach((r) => {
+      const c = portIndex.resolve(r.destination_port) || resolveCountry(r.destination_country)?.coords
+      if (c) out.push({ coords: c, port: r.destination_port, country: r.destination_country })
+    })
+    return out
+  }, [data.freightRates, portIndex])
+
+  const demandRadius = (total) => Math.min(28, 6 + Math.sqrt(total) * 1.6)
+
   return (
     <MapContainer
-      center={[26, 30]}
-      zoom={4}
+      center={[20, 30]}
+      zoom={3}
+      minZoom={2}
+      maxZoom={10}
+      worldCopyJump
       className="w-full h-full"
-      zoomControl={false}
       attributionControl={true}
     >
+      <MapHandle onReady={(m) => { mapRefInternal.current = m }} />
+
       <TileLayer
         url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
-        subdomains="abcd"
-        maxZoom={19}
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
       />
 
-      <MapController mapRef={mapRef} />
-      {ports.length > 0 && <FitBounds ports={ports} />}
+      {/* Origin anchor */}
+      <CircleMarker
+        center={ORIGIN}
+        radius={7}
+        pathOptions={{ color: '#FF6321', weight: 2, fillColor: '#FF6321', fillOpacity: 0.9 }}
+      >
+        <Tooltip direction="top" offset={[0, -6]}>Alexandria · Origin hub</Tooltip>
+      </CircleMarker>
 
-      {/* ── Trade Routes ─────────────────────────────────────────────────── */}
-      {layers.routes && routes.map((route, i) => {
-        const color  = getRouteColor(route)
-        const arc    = makeArc(route.from, route.to)
-        const valM   = (route.totalValue / 1_000_000).toFixed(1)
-        return (
-          <Polyline
-            key={i}
-            positions={arc}
-            pathOptions={{
-              color,
-              weight:    route.weight || 1.5,
-              opacity:   0.45,
-              dashArray: '6 4',
-            }}
-            eventHandlers={{
-              mouseover: (e) => { e.target.setStyle({ opacity: 0.9, weight: (route.weight || 1.5) + 1.5 }) },
-              mouseout:  (e) => { e.target.setStyle({ opacity: 0.45, weight: route.weight || 1.5 }) },
-            }}
-          >
-            <Tooltip sticky opacity={0.97}>
-              <div className="text-[10px]">
-                <div className="font-black text-white mb-0.5">{route.portName || 'Route'}</div>
-                <div style={{ color }}>{route.primaryCategory}</div>
-                <div className="text-[#888]">{route.orderCount} order{route.orderCount !== 1 ? 's' : ''}</div>
-                <div className="text-[#FF6321] font-bold">${valM}M value</div>
-                {route.commodities.length > 0 && (
-                  <div className="text-[#555] mt-0.5">{route.commodities.slice(0, 3).join(', ')}</div>
-                )}
-              </div>
-            </Tooltip>
-          </Polyline>
-        )
-      })}
-
-      {/* ── Ports ────────────────────────────────────────────────────────── */}
-      {layers.ports && ports.map((port) => {
-        const color  = getPortColor(port)
-        const radius = portRadius(port, layers.heatmap)
-        return (
-          <CircleMarker
-            key={port.id}
-            center={[port.lat, port.lng]}
-            radius={radius}
-            pathOptions={{
-              color,
-              fillColor:   layers.heatmap ? color : color,
-              fillOpacity: layers.heatmap ? 0.45 : 0.25,
-              weight: 2,
-            }}
-            eventHandlers={{
-              click: () => onSelect({ ...port, type: 'Port', name: port.name }),
-            }}
-          >
-            <Tooltip direction="top" offset={[0, -8]} opacity={0.97}>
-              <div className="text-[10px]">
-                <div className="font-black text-white">{port.name}</div>
-                <div className="text-[#888]">{port.code} · {port.country}</div>
-                {port.vessels_in_port != null && (
-                  <div className="text-[#22c55e]">{port.vessels_in_port} vessels</div>
-                )}
-                {port.daily_throughput != null && (
-                  <div className="text-[#888]">{port.daily_throughput?.toLocaleString()} t/day</div>
-                )}
-                <div className="capitalize mt-0.5" style={{ color }}>
-                  {port.congestion_level || port.status}
-                </div>
-              </div>
-            </Tooltip>
-          </CircleMarker>
-        )
-      })}
-
-      {/* ── Fleet ────────────────────────────────────────────────────────── */}
-      {layers.fleet && fleet.map((vessel) => {
-        if (!vessel.lat || !vessel.lng) return null
-        const color    = getFleetColor(vessel)
-        const isActive = vessel.status === 'active' || vessel.status === 'in-transit'
-        const type     = vessel.type?.toLowerCase()
-        const radius   = type === 'vessel' || type === 'ship' ? 9 : type === 'truck' ? 6 : 5
-        return (
-          <CircleMarker
-            key={vessel.id}
-            center={[vessel.lat, vessel.lng]}
-            radius={radius}
-            pathOptions={{
-              color,
-              fillColor:   color,
-              fillOpacity: isActive ? 0.9 : 0.7,
-              weight:      isActive ? 2 : 1.5,
-            }}
-            className={isActive ? 'vessel-pulse' : ''}
-            eventHandlers={{
-              click: () => onSelect({ ...vessel, type: vessel.type || 'Vehicle' }),
-            }}
-          >
-            <Tooltip direction="top" offset={[0, -6]} opacity={0.97}>
-              <div className="text-[10px]">
-                <div className="font-black text-white">{vessel.name}</div>
-                <div className="text-[#888] capitalize">{vessel.type}</div>
-                {vessel.cargo   && <div className="text-[#FF6321]">{vessel.cargo}</div>}
-                {vessel.speed != null && vessel.speed > 0 && (
-                  <div className="text-[#888]">{vessel.speed} km/h {vessel.speed > 0 ? '▶' : ''}</div>
-                )}
-                <div className="capitalize mt-0.5" style={{ color }}>{vessel.status}</div>
-              </div>
-            </Tooltip>
-          </CircleMarker>
-        )
-      })}
-
-      {/* ── Customer Markets ─────────────────────────────────────────────── */}
-      {layers.customers && customers.map((c, i) => (
-        <CircleMarker
-          key={i}
-          center={c.coords}
-          radius={4 + Math.min(c.count * 1.5, 10)}
+      {/* ── Shipment routes ─────────────────────────────────────── */}
+      {layers.routes && routes.map((r, i) => (
+        <Polyline
+          key={`route-${i}`}
+          positions={[r.from, r.to]}
           pathOptions={{
-            color:       '#8b5cf6',
-            fillColor:   '#8b5cf6',
-            fillOpacity: 0.3,
-            weight: 1,
-          }}
-          eventHandlers={{
-            click: () => onSelect({ name: c.country, type: 'Market', country: c.country, orderCount: c.count }),
+            color: LAYER_COLORS.routes,
+            weight: 1.2,
+            opacity: 0.55,
+            dashArray: '4 6',
           }}
         >
-          <Tooltip direction="top" offset={[0, -6]} opacity={0.97}>
-            <div className="text-[10px]">
-              <div className="font-black text-white">{c.country}</div>
-              <div className="text-[#8b5cf6]">{c.count} customer{c.count !== 1 ? 's' : ''}</div>
+          <Tooltip sticky>
+            <div className="space-y-0.5">
+              <div className="font-semibold">{r.label}</div>
+              {r.buyer && <div className="text-[10px] text-zinc-400">{r.buyer}</div>}
+              <div className="text-[10px] text-zinc-500 uppercase tracking-widest">{r.kind} · {r.status || '—'}</div>
+            </div>
+          </Tooltip>
+        </Polyline>
+      ))}
+
+      {/* ── Market demand markers ──────────────────────────────── */}
+      {layers.demand && demandByCountry.map((d) => (
+        <CircleMarker
+          key={`demand-${d.code}`}
+          center={d.coords}
+          radius={demandRadius(d.total)}
+          pathOptions={{
+            color: LAYER_COLORS.demand,
+            weight: 1,
+            fillColor: LAYER_COLORS.demand,
+            fillOpacity: 0.35,
+          }}
+          eventHandlers={{
+            click: () => onSelect({ type: 'Demand', ...d }),
+          }}
+        >
+          <Tooltip direction="top">
+            <div className="space-y-0.5">
+              <div className="font-semibold">{d.code}</div>
+              <div className="text-[10px] text-zinc-400">{d.total} signals</div>
+              <div className="text-[10px] text-zinc-500">RFQs {d.rfqs} · Leads {d.leads} · Buyers {d.buyers}</div>
+            </div>
+          </Tooltip>
+        </CircleMarker>
+      ))}
+
+      {/* ── Logistics providers ─────────────────────────────────── */}
+      {layers.providers && providerByCountry.map((p) => (
+        <CircleMarker
+          key={`provider-${p.code}`}
+          center={[p.coords[0] + 0.5, p.coords[1] + 0.5]}
+          radius={5 + Math.min(p.count, 5)}
+          pathOptions={{
+            color: LAYER_COLORS.providers,
+            weight: 1.5,
+            fillColor: LAYER_COLORS.providers,
+            fillOpacity: 0.7,
+          }}
+          eventHandlers={{
+            click: () => onSelect({ type: 'Providers', ...p }),
+          }}
+        >
+          <Tooltip direction="top">
+            <div className="space-y-0.5">
+              <div className="font-semibold">{p.code} — {p.count} partner{p.count > 1 ? 's' : ''}</div>
+              <div className="text-[10px] text-zinc-400">{p.names.slice(0, 3).join(' · ')}</div>
+            </div>
+          </Tooltip>
+        </CircleMarker>
+      ))}
+
+      {/* ── Freight rate destinations ───────────────────────────── */}
+      {layers.freight && freightDots.map((f, i) => (
+        <CircleMarker
+          key={`freight-${i}`}
+          center={f.coords}
+          radius={2.5}
+          pathOptions={{
+            color: LAYER_COLORS.freight,
+            weight: 1,
+            fillColor: LAYER_COLORS.freight,
+            fillOpacity: 0.9,
+          }}
+        >
+          <Tooltip direction="top">
+            <div>{f.port} · {f.country}</div>
+          </Tooltip>
+        </CircleMarker>
+      ))}
+
+      {/* ── Ports ────────────────────────────────────────────────── */}
+      {layers.ports && (data.ports || []).filter((p) => p.lat != null && p.lng != null).map((p) => (
+        <Marker
+          key={`port-${p.id}`}
+          position={[Number(p.lat), Number(p.lng)]}
+          icon={dotIcon(LAYER_COLORS.ports, 7)}
+          eventHandlers={{
+            click: () => onSelect({ type: 'Port', ...p }),
+          }}
+        >
+          <Tooltip direction="top" offset={[0, -6]}>
+            <div className="space-y-0.5">
+              <div className="font-semibold">{p.name}</div>
+              <div className="text-[10px] text-zinc-500">{p.country}</div>
+              {p.vessels_in_port != null && <div className="text-[10px] text-zinc-400">{p.vessels_in_port} vessels</div>}
+            </div>
+          </Tooltip>
+        </Marker>
+      ))}
+
+      {/* ── Fleet ────────────────────────────────────────────────── */}
+      {layers.fleet && (data.fleet || []).filter((f) => f.lat != null && f.lng != null).map((f) => (
+        <Marker
+          key={`fleet-${f.id}`}
+          position={[Number(f.lat), Number(f.lng)]}
+          icon={dotIcon(LAYER_COLORS.fleet, 8, true)}
+          eventHandlers={{
+            click: () => onSelect({ type: 'Fleet', ...f }),
+          }}
+        >
+          <Tooltip direction="top" offset={[0, -8]}>
+            <div className="space-y-0.5">
+              <div className="font-semibold">{f.name}</div>
+              <div className="text-[10px] text-zinc-500">{f.current_port || '—'} → {f.destination || '—'}</div>
+              {f.capacity && <div className="text-[10px] text-zinc-400">{f.capacity} {f.capacity_unit || ''}</div>}
+            </div>
+          </Tooltip>
+        </Marker>
+      ))}
+
+      {/* ── Properties / Realty ─────────────────────────────────── */}
+      {layers.properties && (data.properties || []).filter((p) => p.lat != null && p.lng != null).map((p) => (
+        <CircleMarker
+          key={`prop-${p.id}`}
+          center={[Number(p.lat), Number(p.lng)]}
+          radius={5}
+          pathOptions={{
+            color: LAYER_COLORS.properties,
+            weight: 1.2,
+            fillColor: LAYER_COLORS.properties,
+            fillOpacity: 0.75,
+          }}
+          eventHandlers={{
+            click: () => onSelect({ type: 'Property', ...p }),
+          }}
+        >
+          <Tooltip direction="top">
+            <div className="space-y-0.5">
+              <div className="font-semibold">{p.address || 'Property'}</div>
+              <div className="text-[10px] text-zinc-500 uppercase tracking-widest">{p.status || '—'}</div>
             </div>
           </Tooltip>
         </CircleMarker>
       ))}
     </MapContainer>
   )
-}
+})
+
+export default MapView
