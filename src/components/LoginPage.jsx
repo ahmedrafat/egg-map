@@ -24,7 +24,7 @@ export default function LoginPage() {
     setErr(''); setMsg(''); setBusy(true)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin + '/' },
+      options: { redirectTo: 'https://www.egyptbulkers.com/' },
     })
     if (error) { setErr(error.message); setBusy(false) }
   }
@@ -34,7 +34,7 @@ export default function LoginPage() {
     setErr(''); setMsg(''); setBusy(true)
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin + '/', shouldCreateUser: false },
+      options: { emailRedirectTo: 'https://www.egyptbulkers.com/', shouldCreateUser: false },
     })
     setBusy(false)
     if (error) setErr(error.message)
