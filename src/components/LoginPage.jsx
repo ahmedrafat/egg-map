@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Globe } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
+import { ssoRedirectUrl } from '../lib/ssoConsume.js'
 
 function GoogleIcon() {
   return (
@@ -24,7 +25,7 @@ export default function LoginPage() {
     setErr(''); setMsg(''); setBusy(true)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: 'https://www.egyptbulkers.com/' },
+      options: { redirectTo: ssoRedirectUrl() },
     })
     if (error) { setErr(error.message); setBusy(false) }
   }
@@ -34,7 +35,7 @@ export default function LoginPage() {
     setErr(''); setMsg(''); setBusy(true)
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: 'https://www.egyptbulkers.com/', shouldCreateUser: false },
+      options: { emailRedirectTo: ssoRedirectUrl(), shouldCreateUser: false },
     })
     setBusy(false)
     if (error) setErr(error.message)
