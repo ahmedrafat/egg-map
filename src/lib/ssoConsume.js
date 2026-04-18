@@ -17,16 +17,28 @@ export function ssoRedirectUrl() {
 export async function consumeSsoHash() {
   try {
     const hash = window.location.hash
-    if (!hash || hash.length < 2) return false
+    if (!hash || hash.length < 2) {
+      console.log('[SSO] consumeSsoHash: no hash on this origin', window.location.origin)
+      return false
+    }
     const params = new URLSearchParams(hash.slice(1))
     const at = params.get('sso_at')
     const rt = params.get('sso_rt')
-    if (!at || !rt) return false
-    await supabase.auth.setSession({ access_token: at, refresh_token: rt })
+    if (!at || !rt) {
+      console.log('[SSO] consumeSsoHash: hash present but no sso_at/sso_rt', { hashLen: hash.length, hasAt: !!at, hasRt: !!rt })
+      return false
+    }
+    console.log('[SSO] consumeSsoHash: got tokens from hash, calling setSession…')
+    const { data, error } = await supabase.auth.setSession({ access_token: at, refresh_token: rt })
+    if (error) {
+      console.warn('[SSO] consumeSsoHash: setSession error', error.message)
+      return false
+    }
+    console.log('[SSO] consumeSsoHash: setSession OK, user =', data?.session?.user?.email || '(no user)')
     history.replaceState(null, '', window.location.pathname + window.location.search)
     return true
   } catch (e) {
-    console.warn('SSO handoff failed:', e)
+    console.warn('[SSO] consumeSsoHash failed:', e)
     return false
   }
 }
